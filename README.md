@@ -4,7 +4,7 @@
 
 <img src="https://github.com/oliverw/miningcore/raw/master/logo.png" width="150">
 
-### Features
+## Features
 
 - Supports clusters of pools each running individual currencies
 - Ultra-low-latency, multi-threaded Stratum implementation using asynchronous I/O
@@ -19,11 +19,6 @@
 - Detailed per-pool logging to console & filesystem
 - Runs on Linux and Windows
 
-## Support
-
-Commercial support directly by the maintainer is available through [miningcore.pro](https://store.miningcore.pro).
-
-For general questions visit the [Discussions Area](https://github.com/oliverw/miningcore/discussions).
 
 ## Contributions
 
