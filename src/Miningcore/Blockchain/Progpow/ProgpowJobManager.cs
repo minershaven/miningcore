@@ -67,6 +67,18 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
 
     private double ShareMultiplier => coin.ShareMultiplier;
 
+    // Firo no longer derives the FiroPoW epoch from height / 1300 (DAG size was reduced by a
+    // network upgrade). The daemon reports the correct epoch as "pprpcepoch" in getblocktemplate,
+    // so map it to a block number inside that epoch for the light-cache lookup.
+    private int CacheBlockFor(BlockTemplate bt, long height)
+    {
+        if(coin.Symbol == "FIRO" && bt?.Extra != null &&
+           bt.Extra.TryGetValue("pprpcepoch", out var e) && e != null)
+            return Convert.ToInt32(e) * FiroConstants.EpochLength;
+
+        return (int) height;
+    }
+
 
     protected override void PostChainIdentifyConfigure()
     {
@@ -94,7 +106,7 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
                 {
                     logger.Info(() => "Loading current light cache ...");
 
-                    await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height, ct);
+                    await coin.ProgpowHasher.GetCacheAsync(logger, CacheBlockFor(blockTemplate.Response, blockTemplate.Response.Height), ct);
 
                     logger.Info(() => "Loaded current light cache");
                     break;
@@ -141,7 +153,7 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
 
                 var blockHeight = blockTemplate?.Height ?? currentJob.BlockTemplate.Height;
 
-                var progpowHasher = await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockHeight, ct);
+                var progpowHasher = await coin.ProgpowHasher.GetCacheAsync(logger, CacheBlockFor(blockTemplate ?? currentJob?.BlockTemplate, blockHeight), ct);
 
                 job.Init(blockTemplate, NextJobId(),
                     poolConfig, extraPoolConfig, clusterConfig, clock, poolAddressDestination, network, isPoS,
