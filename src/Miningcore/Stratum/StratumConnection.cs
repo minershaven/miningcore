@@ -477,7 +477,10 @@ public class StratumConnection
                             var start = (int) reader.TokenStartIndex;
                             reader.Skip();
                             var end = (int) reader.BytesConsumed;
-                            paramsSlice = jsonSlice.Slice(start, end - start);
+                            // Copy: the pipe buffer behind jsonSlice is recycled once the
+                            // reader advances, which can happen before the request handler
+                            // reads its params (large Pearl proofs showed corrupted base64).
+                            paramsSlice = new ReadOnlySequence<byte>(jsonSlice.Slice(start, end - start).ToArray());
                         }
                     }
                     else if(nameLength == 2) // "id"

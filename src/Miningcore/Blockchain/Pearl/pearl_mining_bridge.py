@@ -28,7 +28,9 @@ returned by pearld); we feed it straight into the gateway's
 BlockTemplate.from_get_block_template via GetBlockTemplateResponse.
 """
 
+import os
 import sys
+import time
 import json
 import base64
 import gzip
@@ -124,7 +126,12 @@ def _deserialize_plain_proof(payload: str) -> PlainProof:
         and len(payload) % 2 == 0
         and all(c in "0123456789abcdefABCDEF" for c in payload)
     )
-    raw = bytes.fromhex(payload) if is_hex else base64.b64decode(payload, validate=False)
+    if is_hex:
+        raw = bytes.fromhex(payload)
+    else:
+        payload = payload.replace("-", "+").replace("_", "/")  # tolerate base64url
+        payload += "=" * (-len(payload) % 4)                   # tolerate missing padding
+        raw = base64.b64decode(payload, validate=False)
     raw = _inflate(raw)
     if len(raw) > MAX_PROOF_BYTES:
         raise ValueError("proof too large")
@@ -161,6 +168,23 @@ def difficulty_to_share_nbits(diff: float) -> int:
     return target_to_bits(share_target)
 
 
+BAD_PROOF_DIR = os.environ.get("PEARL_BAD_PROOF_DIR", "/opt/miningcore/pearl/bad-proofs")
+
+
+def _keep_bad_proof(payload: str, err: Exception) -> None:
+    """Keep a few undecodable submissions for offline diagnosis."""
+    try:
+        os.makedirs(BAD_PROOF_DIR, exist_ok=True)
+        if len(os.listdir(BAD_PROOF_DIR)) >= 20:
+            return
+        name = os.path.join(BAD_PROOF_DIR, f"{int(time.time() * 1000)}.txt")
+        with open(name, "w") as f:
+            f.write(f"# {type(err).__name__}: {err}\n# len={len(payload)} mod4={len(payload) % 4}\n")
+            f.write(payload)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def handle_submit_proof(req: dict) -> dict:
     job_id = req["jobId"]
     if job_id not in TEMPLATES:
@@ -175,6 +199,7 @@ def handle_submit_proof(req: dict) -> dict:
     try:
         plain_proof = _deserialize_plain_proof(req["plainProofB64"])
     except Exception as e:  # noqa: BLE001
+        _keep_bad_proof(req["plainProofB64"], e)
         return {"valid": False, "error": f"bad proof data: {e}", "meetsTarget": False}
 
     network_difficulty = difficulty_from_target(network_target)
