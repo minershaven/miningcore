@@ -31,6 +31,8 @@ BlockTemplate.from_get_block_template via GetBlockTemplateResponse.
 import sys
 import json
 import base64
+import gzip
+import zlib
 import traceback
 
 try:
@@ -76,6 +78,8 @@ def handle_set_template(req: dict) -> dict:
 
     network_target = template.target  # int
     TEMPLATES[job_id] = (template, network_target)
+    while len(TEMPLATES) > 16:  # keep only recent jobs (dicts preserve insertion order)
+        TEMPLATES.pop(next(iter(TEMPLATES)))
 
     incomplete_header_bytes = template.header.serialize_without_proof_commitment()
 
@@ -85,36 +89,47 @@ def handle_set_template(req: dict) -> dict:
     }
 
 
+MAX_PROOF_BYTES = 6 * 1024 * 1024  # decompressed cap (Pearl stratum spec v1.5)
+
+
+def _inflate(raw: bytes) -> bytes:
+    """Auto-detect gzip (RFC 1952) or zlib (RFC 1950) compressed proofs."""
+    if raw[:2] == b"\x1f\x8b":
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    elif len(raw) >= 2 and (raw[0] & 0x0F) == 8 and ((raw[0] << 8) | raw[1]) % 31 == 0:
+        d = zlib.decompressobj()
+    else:
+        return raw
+    try:
+        out = d.decompress(raw, MAX_PROOF_BYTES + 1)
+    except zlib.error:
+        return raw  # not actually compressed; treat as raw bincode
+    if len(out) > MAX_PROOF_BYTES:
+        raise ValueError("proof too large after decompression")
+    return out
+
+
 def _deserialize_plain_proof(payload: str) -> PlainProof:
     """
     Reconstruct a PlainProof from the miner-submitted payload.
 
-    The canonical wire format (py-pearl-mining zk-pow/src/ffi/plain_proof.rs)
-    is bincode, exchanged as base64:
-
-        PlainProof.from_base64(str)  /  proof.to_base64() -> str
-
-    Accepted inputs:
-      - base64 string of the bincode bytes (canonical; passed through as-is)
-      - hex string of the bincode bytes (re-encoded to base64 first)
-
-    No pickle: the payload is raw bincode, never a Python pickle.
+    Wire format (Pearl stratum v1, as sent by SRBMiner-MULTI and others):
+    base64 of the bincode PlainProof bytes, raw or gzip/zlib-compressed
+    (auto-detected). A hex string of the raw bytes is also accepted.
     """
     payload = payload.strip()
 
-    # Hex input? (even length, only hex chars, reasonably long)
     is_hex = (
         len(payload) >= 2
         and len(payload) % 2 == 0
         and all(c in "0123456789abcdefABCDEF" for c in payload)
     )
+    raw = bytes.fromhex(payload) if is_hex else base64.b64decode(payload, validate=False)
+    raw = _inflate(raw)
+    if len(raw) > MAX_PROOF_BYTES:
+        raise ValueError("proof too large")
 
-    if is_hex:
-        raw = bytes.fromhex(payload)
-        payload = base64.b64encode(raw).decode("ascii")
-
-    # Canonical path: bincode-over-base64.
-    return PlainProof.from_base64(payload)
+    return PlainProof.from_base64(base64.b64encode(raw).decode("ascii"))
 
 
 def target_to_bits(target: int) -> int:
@@ -131,6 +146,10 @@ def target_to_bits(target: int) -> int:
         compact >>= 8
         size += 1
     return (size << 24) | (compact & 0x007FFFFF)
+
+
+def share_nbits_target(nbits: int) -> int:
+    return bits_to_target(nbits)
 
 
 def difficulty_to_share_nbits(diff: float) -> int:
@@ -165,12 +184,20 @@ def handle_submit_proof(req: dict) -> dict:
     #    via nbits_override, so pool-difficulty solutions are accepted even when
     #    they do not meet the full network target.
     share_nbits = difficulty_to_share_nbits(worker_diff)
-    ok, msg = verify_plain_proof_for_cert_version(cert_version, incomplete_header, plain_proof, share_nbits)
+    try:
+        ok, msg = verify_plain_proof_for_cert_version(cert_version, incomplete_header, plain_proof, share_nbits)
+    except Exception as e:  # noqa: BLE001  (e.g. proof not eligible for this cert version)
+        return {"valid": False, "error": f"invalid proof: {e}", "meetsTarget": False}
     if not ok:
-        return {"valid": False, "error": f"verify_plain_proof: {msg}", "meetsTarget": False}
+        return {"valid": False, "error": f"invalid proof: {msg}", "meetsTarget": False}
 
     # 2. Check BLOCK candidacy: verify against the header's own network nbits.
-    meets_target, _ = verify_plain_proof_for_cert_version(cert_version, incomplete_header, plain_proof)
+    # Skip the second verification when the share target is already at least
+    # as hard as the network target.
+    if share_nbits_target(share_nbits) <= network_target:
+        meets_target = True
+    else:
+        meets_target, _ = verify_plain_proof_for_cert_version(cert_version, incomplete_header, plain_proof)
 
     block_hex = None
     block_hash = None
