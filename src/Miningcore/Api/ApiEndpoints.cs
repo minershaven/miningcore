@@ -785,7 +785,7 @@ public static class ApiEndpoints
 
                 static string Json(object o) => Newtonsoft.Json.JsonConvert.SerializeObject(o);
 
-                using var accepted = messageBus.Listen<Share>()
+                using var accepted = messageBus.Listen<Miningcore.Blockchain.Share>()
                     .Where(x => x.PoolId == pool.Id && x.Miner == address)
                     .Subscribe(x => channel.Writer.TryWrite(Json(new
                     {
