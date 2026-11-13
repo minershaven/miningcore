@@ -171,7 +171,10 @@ public class FiroJob : ProgpowJob
             }
             else
             {
-                founders = new[] { new Founder{ Payee = "aLgRaYSFk6iVw2FqY1oei8Tdn2aTsGPVmP", Amount = 93750000 }, new Founder{ Payee = "aFA2TbqG9cnhhzX5Yny2pBJRK5EaEqLCH7", Amount = 62500000 } };
+                // Stage 3 development fund (15%) and community fund (10%), as paid by current mainnet blocks
+                // (e.g. 1411257, 1411270). The old dev fund address aLgRaYSF... is rejected by the daemon
+                // with "Stage 3 developer/community reward check failed".
+                founders = new[] { new Founder{ Payee = "a7GJ9bYfbZqvXmEmxzxZyZYtUTQmzckpjG", Amount = 93750000 }, new Founder{ Payee = "aFA2TbqG9cnhhzX5Yny2pBJRK5EaEqLCH7", Amount = 62500000 } };
             }
             
             foreach(var Founder in founders)
