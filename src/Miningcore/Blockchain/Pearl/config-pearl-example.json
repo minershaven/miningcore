@@ -3,8 +3,7 @@
     "//2": "standard btcd JSON-RPC: getblocktemplate / submitblock / getblockchaininfo.",
     "//3": "pearld RPC default port = 44107 (mainnet). Oyster WALLET = 44207 (used only",
     "//4": "for payouts, not implemented yet). pearld serves TLS by default; set ssl:true,",
-    "//5": "or run pearld with --notls and set ssl:false.",
-
+    "//5": "pearld serves TLS by default (ssl:true; the certificate is not validated). Miners: SRBMiner-MULTI --algorithm pearlhash (3.8.4+ recommended), OneZeroMiner, suprminer.",
     "logging": {
         "level": "info",
         "enableConsoleLog": true,
@@ -13,8 +12,12 @@
         "logBaseDirectory": "/home/eman/miningcorePRL/logs",
         "perPoolLogFile": true
     },
-    "banning": { "manager": "Integrated" },
-    "notifications": { "enabled": false },
+    "banning": {
+        "manager": "Integrated"
+    },
+    "notifications": {
+        "enabled": false
+    },
     "persistence": {
         "postgres": {
             "host": "127.0.0.1",
@@ -24,7 +27,11 @@
             "database": "miningcore"
         }
     },
-    "paymentProcessing": { "enabled": false },
+    "paymentProcessing": {
+        "enabled": true,
+        "interval": 600,
+        "shareRecoveryFile": "recovered-shares.txt"
+    },
     "pools": [
         {
             "id": "pearl1",
@@ -34,12 +41,22 @@
             "blockRefreshInterval": 1000,
             "jobRebroadcastTimeout": 10,
             "clientConnectionTimeout": 600,
-            "banning": { "enabled": false },
+            "banning": {
+                "enabled": false
+            },
             "ports": {
-                "3333": {
+                "3001": {
                     "listenAddress": "0.0.0.0",
-                    "difficulty": 1,
-                    "name": "Pearl"
+                    "name": "GPU",
+                    "difficulty": 2000000,
+                    "varDiff": {
+                        "minDiff": 100000,
+                        "maxDiff": null,
+                        "targetTime": 10,
+                        "retargetTime": 30,
+                        "variancePercent": 30,
+                        "maxDelta": 1000000000000.0
+                    }
                 }
             },
             "daemons": [
@@ -50,23 +67,32 @@
                     "user": "pearlrpc",
                     "password": "YOUR_PEARLD_RPC_PASSWORD",
                     "ssl": true
+                },
+                {
+                    "//": "Oyster wallet RPC (payouts). Run oyster with noservertls=1 on localhost.",
+                    "host": "127.0.0.1",
+                    "port": 44207,
+                    "user": "pool",
+                    "password": "YOUR_OYSTER_RPC_PASSWORD",
+                    "category": "wallet"
                 }
             ],
             "paymentProcessing": {
-                "enabled": false,
-                "minimumPayment": 1,
+                "enabled": true,
+                "minimumPayment": 10,
                 "payoutScheme": "PPLNS",
-                "payoutSchemeConfig": { "factor": 2 },
-                "extra": {
-                    "walletPrivateKey": ""
-                }
+                "payoutSchemeConfig": {
+                    "factor": 2
+                },
+                "walletPassphrase": "YOUR_OYSTER_PRIVATE_PASSPHRASE",
+                "account": "default",
+                "feeRatePerKb": 0.0001,
+                "minConf": 1
             },
-            "extra": {
-                "maxActiveJobs": 4,
-                "extraNonce1Size": 4,
-                "pythonExecutable": "python3",
-                "pythonBridgeScript": "/home/eman/miningcorePRL/build-pearl/pearl_mining_bridge.py"
-            }
+            "maxActiveJobs": 4,
+            "pythonExecutable": "/opt/pearl-venv/bin/python",
+            "pythonBridgeScript": "/opt/miningcore/pearl/pearl_mining_bridge.py"
         }
-    ]
+    ],
+    "//6": "Pool-level and paymentProcessing-level settings are plain properties (Miningcore extension data), not nested under an 'extra' key. Python env: build py-pearl-mining (maturin) + miner/miner-utils + miner/pearl-gateway from pearl-research-labs/pearl into a venv."
 }
