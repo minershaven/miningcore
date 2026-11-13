@@ -61,6 +61,26 @@ public class PearlPool : PoolBase
     // Stratum handlers
     // -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Pearl stratum uses named (object) params. The connection's fast parser
+    /// may hand us the raw params bytes instead of a JToken, so normalise here.
+    /// </summary>
+    internal static object NormalizeParams(object p)
+    {
+        switch(p)
+        {
+            case JToken:
+                return p;
+            case System.Buffers.ReadOnlySequence<byte> ros:
+                var str = System.Text.Encoding.UTF8.GetString(System.Buffers.BuffersExtensions.ToArray(ros));
+                return string.IsNullOrWhiteSpace(str) ? null : JToken.Parse(str);
+            case string s when s.TrimStart().StartsWith("{") || s.TrimStart().StartsWith("["):
+                return JToken.Parse(s);
+            default:
+                return p;
+        }
+    }
+
     private async Task OnSubscribeAsync(
         StratumConnection                connection,
         Timestamped<JsonRpcRequest>      tsRequest)
@@ -74,7 +94,7 @@ public class PearlPool : PoolBase
 
         // Params may be an array ["agent", ...] or an object {"agent": "..."}.
         string userAgent = null;
-        switch(request.Params)
+        switch(NormalizeParams(request.Params))
         {
             case JArray arr when arr.Count > 0:
                 userAgent = arr[0]?.Value<string>();
@@ -138,7 +158,7 @@ public class PearlPool : PoolBase
         string agentValue  = null;   // user-agent (object form)
         string password    = null;   // password (array form)
 
-        switch(request.Params)
+        switch(NormalizeParams(request.Params))
         {
             case JObject obj:
                 walletValue = obj.Value<string>("wallet")
@@ -270,7 +290,7 @@ public class PearlPool : PoolBase
             if(!context.IsAuthorized)
                 throw new StratumException(StratumError.UnauthorizedWorker, "unauthorized");
 
-            var share = await manager.SubmitShareAsync(connection, request.Params, ct);
+            var share = await manager.SubmitShareAsync(connection, NormalizeParams(request.Params), ct);
 
             await connection.RespondAsync(new JsonRpcResponse<object>(true, request.Id));
 
