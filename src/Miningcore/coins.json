@@ -8547,5 +8547,29 @@
     "explorerBlockLink": "",
     "explorerTxLink": "",
     "explorerAccountLink": ""
+  },
+  "zano": {
+    "name": "Zano",
+    "canonicalName": "Zano",
+    "symbol": "ZANO",
+    "family": "zano",
+    "website": "https://zano.org",
+    "market": "https://www.coingecko.com/en/coins/zano",
+    "twitter": "https://x.com/zano_project",
+    "telegram": "https://t.me/zanocoin",
+    "discord": "https://discord.gg/wE3rmYY",
+    "github": "https://github.com/hyle-team/zano",
+    "hash": "progpowz",
+    "hashVariant": 0,
+    "blobType": 0,
+    "difficultyTarget": 120,
+    "smallestUnit": 1000000000000,
+    "addressPrefix": 197,
+    "addressPrefixIntegrated": 13944,
+    "addressV2PrefixIntegrated": 14072,
+    "auditableAddressPrefix": 39112,
+    "auditableAddressIntegratedPrefix": 35401,
+    "explorerBlockLink": "https://explorer.zano.org/block/$hash$",
+    "explorerTxLink": "https://explorer.zano.org/transaction/{0}"
   }
 }
