@@ -149,7 +149,9 @@ public class PearlJob
             // Pearl stratum v1 notify fields (header = 76-byte incomplete header)
             ["header"]     = headerHex,
             ["height"]     = _template.Height,
-            ["job_id"]     = JobId,
+            // "<job>_<difficulty>" like other Pearl pools; miners (SRBMiner)
+            // read the trailing integer as the share difficulty band.
+            ["job_id"]     = $"{JobId}_{(ulong) Math.Max(1, Math.Round(workerDifficulty))}",
             ["target"]     = DifficultyToTargetHex(workerDifficulty),
         };
     }

@@ -165,6 +165,11 @@ public class PearlJobManager : JobManagerBase<PearlJob>
             $"mining.submit jobId={jobId} proofLen={plainProofData.Length} " +
             $"shape=({DescribeSubmission(submission)})");
 
+        // Strip the "_<difficulty>" suffix added to job ids in mining.notify.
+        var us = jobId.IndexOf('_');
+        if(us > 0)
+            jobId = jobId[..us];
+
         PearlJob job;
         lock(context)
             job = context.GetJob(jobId);
