@@ -146,13 +146,13 @@ public class PearlJob
 
         return new Dictionary<string, object>
         {
-            ["job_id"]     = JobId,
-            ["height"]     = _template.Height,
+            // Pearl stratum v1 notify fields (header = 76-byte incomplete header)
             ["header"]     = headerHex,
+            ["height"]     = _template.Height,
+            // "<job>_<difficulty>" like other Pearl pools; miners (SRBMiner)
+            // read the trailing integer as the share difficulty band.
+            ["job_id"]     = $"{JobId}_{(ulong) Math.Max(1, Math.Round(workerDifficulty))}",
             ["target"]     = DifficultyToTargetHex(workerDifficulty),
-            ["difficulty"] = workerDifficulty,
-            ["diff"]       = workerDifficulty,   // some miners (incl. lpminer) read "diff"
-            ["clean_jobs"] = cleanJobs,
         };
     }
 
@@ -173,15 +173,22 @@ public class PearlJob
 
         var context = worker.ContextAs<PearlWorkerContext>();
 
+        // A VarDiff retarget can race with a share already in flight. Verify
+        // against the easier of the current and previous difficulty for a
+        // short grace window and credit the share at that difficulty.
+        var stratumDiff = context.Difficulty;
+        if(context.PreviousDifficulty.HasValue && context.PreviousDifficulty.Value < stratumDiff &&
+           context.VarDiff?.LastUpdate != null &&
+           clock.Now - context.VarDiff.LastUpdate.Value < TimeSpan.FromSeconds(30))
+            stratumDiff = context.PreviousDifficulty.Value;
+
         PearlProofResult result;
         try
         {
-            // The bridge:
-            //   - reconstructs PlainProof from the submitted bytes
-            //   - verify_plain_proof(incomplete_header, plain_proof)
-            //   - reports the achieved difficulty and whether it meets network target
-            //   - if it meets target, runs generate_proof + assembles the block hex
-            result = await bridge.SubmitPlainProofAsync(JobId, plainProofBase64, context.Difficulty, ct);
+            // The bridge verifies the PlainProof against the share target for
+            // stratumDiff and, if it also clears the network target, builds the
+            // ZK proof and the final block hex.
+            result = await bridge.SubmitPlainProofAsync(JobId, plainProofBase64, stratumDiff, ct);
         }
         catch(Exception ex)
         {
@@ -190,30 +197,12 @@ public class PearlJob
         }
 
         if(!result.Valid)
-            throw new StratumException(StratumError.Other,
-                string.IsNullOrEmpty(result.Error) ? PearlStratumErrors.ProofVerifyFailed : result.Error);
-
-        var stratumDiff = context.Difficulty;
-
-        // The bridge returns the share difficulty achieved by this proof.
-        var shareDiff = result.ShareDifficulty;
-        var ratio     = shareDiff / stratumDiff;
-
-        if(!result.MeetsNetworkTarget && ratio < 0.99)
         {
-            if(context.VarDiff?.LastUpdate != null && context.PreviousDifficulty.HasValue)
-            {
-                if(shareDiff / context.PreviousDifficulty.Value < 0.99)
-                    throw new StratumException(StratumError.LowDifficultyShare,
-                        $"{PearlStratumErrors.LowDifficulty} ({shareDiff})");
-
-                stratumDiff = context.PreviousDifficulty.Value;
-            }
-            else
-            {
-                throw new StratumException(StratumError.LowDifficultyShare,
-                    $"{PearlStratumErrors.LowDifficulty} ({shareDiff})");
-            }
+            var err = string.IsNullOrEmpty(result.Error) ? PearlStratumErrors.ProofVerifyFailed : result.Error;
+            var code = err.Contains("target", StringComparison.OrdinalIgnoreCase) || err.Contains("jackpot", StringComparison.OrdinalIgnoreCase)
+                ? StratumError.LowDifficultyShare
+                : StratumError.Other;
+            throw new StratumException(code, err);
         }
 
         var share = new Share
@@ -221,6 +210,7 @@ public class PearlJob
             BlockHeight       = (long) BlockHeight,
             NetworkDifficulty = this.NetworkDifficulty > 0 ? this.NetworkDifficulty : result.NetworkDifficulty,
             Difficulty        = stratumDiff,
+            BlockReward       = _template.CoinbaseValue / PearlConstants.SmallestUnit,
         };
 
         if(result.MeetsNetworkTarget && !string.IsNullOrEmpty(result.BlockHex))

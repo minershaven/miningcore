@@ -312,6 +312,7 @@ public class KaspaPool : PoolBase
             // update client stats
             context.Stats.InvalidShares++;
             logger.Info(() => $"[{connection.ConnectionId}] Share rejected: {ex.Message} [{context.UserAgent}]");
+            PublishRejectedShare(connection, context, ex.Message);
 
             // banning
             ConsiderBan(connection, context, poolConfig.Banning);

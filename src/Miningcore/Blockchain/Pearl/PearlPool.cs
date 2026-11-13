@@ -61,6 +61,26 @@ public class PearlPool : PoolBase
     // Stratum handlers
     // -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Pearl stratum uses named (object) params. The connection's fast parser
+    /// may hand us the raw params bytes instead of a JToken, so normalise here.
+    /// </summary>
+    internal static object NormalizeParams(object p)
+    {
+        switch(p)
+        {
+            case JToken:
+                return p;
+            case System.Buffers.ReadOnlySequence<byte> ros:
+                var str = System.Text.Encoding.UTF8.GetString(System.Buffers.BuffersExtensions.ToArray(ros));
+                return string.IsNullOrWhiteSpace(str) ? null : JToken.Parse(str);
+            case string s when s.TrimStart().StartsWith("{") || s.TrimStart().StartsWith("["):
+                return JToken.Parse(s);
+            default:
+                return p;
+        }
+    }
+
     private async Task OnSubscribeAsync(
         StratumConnection                connection,
         Timestamped<JsonRpcRequest>      tsRequest)
@@ -74,7 +94,7 @@ public class PearlPool : PoolBase
 
         // Params may be an array ["agent", ...] or an object {"agent": "..."}.
         string userAgent = null;
-        switch(request.Params)
+        switch(NormalizeParams(request.Params))
         {
             case JArray arr when arr.Count > 0:
                 userAgent = arr[0]?.Value<string>();
@@ -138,7 +158,7 @@ public class PearlPool : PoolBase
         string agentValue  = null;   // user-agent (object form)
         string password    = null;   // password (array form)
 
-        switch(request.Params)
+        switch(NormalizeParams(request.Params))
         {
             case JObject obj:
                 walletValue = obj.Value<string>("wallet")
@@ -218,15 +238,14 @@ public class PearlPool : PoolBase
                 $"(no prior mining.subscribe)");
         }
 
-        await connection.RespondAsync(new JsonRpcResponse<object>(true, request.Id));
-        logger.Info(() => $"[{connection.ConnectionId}] Authorized worker {walletValue}");
-
-        // Static diff from password (array form: x=<diff>)
+        // Static diff from password ("d=N" / "x=N", see Pearl stratum spec §6)
         var staticDiff = GetStaticDiffFromPassparts(passParts);
-        if(staticDiff.HasValue &&
-           (context.VarDiff != null && staticDiff.Value >= context.VarDiff.Config.MinDiff ||
-            context.VarDiff == null && staticDiff.Value > context.Difficulty))
+        if(staticDiff.HasValue)
         {
+            var minDiff = context.VarDiff?.Config.MinDiff ?? 0;
+            if(staticDiff.Value < minDiff)
+                staticDiff = minDiff;
+
             context.VarDiff = null;
             context.SetDifficulty(staticDiff.Value);
             logger.Info(() =>
@@ -234,14 +253,15 @@ public class PearlPool : PoolBase
         }
 
         // -------------------------------------------------------------------
-        // Send difficulty + first job so the miner gets work immediately
+        // Pearl stratum (suprnova dialect, spoken by SRBMiner-MULTI and others):
+        // push the first mining.notify BEFORE the authorize ack. There is no
+        // mining.set_difficulty; the share target travels inside each notify.
         // -------------------------------------------------------------------
-        await connection.NotifyAsync(
-            BitcoinStratumMethods.SetDifficulty,
-            new object[] { context.Difficulty });
-
         var jobParams = CreateWorkerJob(connection, true);
         await connection.NotifyAsync(PearlConstants.StratumNotify, jobParams);
+
+        await connection.RespondAsync(new JsonRpcResponse<object>(true, request.Id));
+        logger.Info(() => $"[{connection.ConnectionId}] Authorized worker {walletValue} [{context.UserAgent}]");
     }
 
     private async Task OnSubmitAsync(
@@ -269,10 +289,8 @@ public class PearlPool : PoolBase
 
             if(!context.IsAuthorized)
                 throw new StratumException(StratumError.UnauthorizedWorker, "unauthorized");
-            if(!context.IsSubscribed)
-                throw new StratumException(StratumError.NotSubscribed, "not subscribed");
 
-            var share = await manager.SubmitShareAsync(connection, request.Params, ct);
+            var share = await manager.SubmitShareAsync(connection, NormalizeParams(request.Params), ct);
 
             await connection.RespondAsync(new JsonRpcResponse<object>(true, request.Id));
 
@@ -297,6 +315,7 @@ public class PearlPool : PoolBase
             context.Stats.InvalidShares++;
             logger.Info(() =>
                 $"[{connection.ConnectionId}] Share rejected: {ex.Message} [{context.UserAgent}]");
+            PublishRejectedShare(connection, context, ex.Message);
 
             ConsiderBan(connection, context, poolConfig.Banning);
             throw;
@@ -316,13 +335,12 @@ public class PearlPool : PoolBase
         await Guard(() => ForEachMinerAsync(async (connection, ct) =>
         {
             var context      = connection.ContextAs<PearlWorkerContext>();
+
+            if(!context.IsAuthorized)
+                return;
+
+            context.ApplyPendingDifficulty();
             var minerParams  = CreateWorkerJob(connection, cleanJob);
-
-            if(context.ApplyPendingDifficulty())
-                await connection.NotifyAsync(
-                    BitcoinStratumMethods.SetDifficulty,
-                    new object[] { context.Difficulty });
-
             await connection.NotifyAsync(PearlConstants.StratumNotify, minerParams);
         }));
     }
@@ -355,11 +373,12 @@ public class PearlPool : PoolBase
 
     /// <summary>
     /// Pearl mining.submit carries a serialized PlainProof which far exceeds
-    /// the default 32 KB stratum line limit. Default to 1 MiB, configurable
+    /// the default 32 KB stratum line limit (SRBMiner H100 proofs ~1.5 MB, OneZeroMiner
+    /// up to ~2.9 MB base64). Default to 9 MiB, configurable
     /// via the pool extra "maxStratumRequestSize".
     /// </summary>
     protected override int MaxInboundRequestLength =>
-        extraPoolConfig?.MaxStratumRequestSize ?? 0x100000;
+        extraPoolConfig?.MaxStratumRequestSize ?? 0x900000;
 
     public override void Configure(PoolConfig pc, ClusterConfig cc)
     {
@@ -452,11 +471,6 @@ public class PearlPool : PoolBase
             // Re-issue work at the new difficulty. Use cleanJobs=false so the
             // miner keeps any in-flight work valid where possible.
             var minerParams  = CreateWorkerJob(connection, false);
-
-            await connection.NotifyAsync(
-                BitcoinStratumMethods.SetDifficulty,
-                new object[] { connection.Context.Difficulty });
-
             await connection.NotifyAsync(PearlConstants.StratumNotify, minerParams);
         }
     }

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Globalization;
 using System.Net;
+using System.Reactive.Linq;
 using Autofac;
 using AutoMapper;
 using Microsoft.AspNetCore.Builder;
@@ -30,6 +31,10 @@ public static class ApiEndpoints
     private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
     // Start of the effort window for pools that have not found a block yet
+    // concurrent live share streams (Server-Sent Events) across all pools
+    private static int activeShareStreams;
+    private const int MaxShareStreams = 500;
+
     private static readonly DateTime EffortEpoch = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     // Bitcoin-family shares are stored as stratumDifficulty / ShareMultiplier and the network
@@ -740,6 +745,111 @@ public static class ApiEndpoints
             }
 
             return stats;
+        });
+
+        // Live share stream (Server-Sent Events): pushes this miner's accepted and rejected
+        // shares as they happen. Filtered server-side so a client only receives its own shares.
+        poolsGroup.MapGet("/{poolId}/miners/{address}/sharestream", async (
+            string poolId, string address,
+            [FromServices] ClusterConfig clusterConfig,
+            [FromServices] ConcurrentDictionary<string, IMiningPool> pools,
+            [FromServices] Messaging.IMessageBus messageBus,
+            HttpContext httpContext) =>
+        {
+            var ct = httpContext.RequestAborted;
+            var pool = GetPool(clusterConfig, poolId);
+
+            if(string.IsNullOrEmpty(address))
+                throw new ApiException("Invalid or missing miner address", HttpStatusCode.NotFound);
+
+            if(pool.Template.Family == CoinFamily.Ethereum)
+                address = address.ToLower();
+
+            if(Interlocked.Increment(ref activeShareStreams) > MaxShareStreams)
+            {
+                Interlocked.Decrement(ref activeShareStreams);
+                httpContext.Response.StatusCode = (int) HttpStatusCode.ServiceUnavailable;
+                return;
+            }
+
+            try
+            {
+                var multiplier = pools.TryGetValue(pool.Id, out var miningPool) ? miningPool.ShareMultiplier : 1d;
+
+                var channel = System.Threading.Channels.Channel.CreateBounded<string>(
+                    new System.Threading.Channels.BoundedChannelOptions(256)
+                    {
+                        FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
+                        SingleReader = true
+                    });
+
+                static string Json(object o) => Newtonsoft.Json.JsonConvert.SerializeObject(o);
+
+                using var accepted = messageBus.Listen<Miningcore.Blockchain.Share>()
+                    .Where(x => x.PoolId == pool.Id && x.Miner == address)
+                    .Subscribe(x => channel.Writer.TryWrite(Json(new
+                    {
+                        type = "accepted",
+                        worker = x.Worker ?? "",
+                        difficulty = x.Difficulty * multiplier,
+                        blockCandidate = x.IsBlockCandidate,
+                        blockHeight = x.IsBlockCandidate ? x.BlockHeight : (long?) null,
+                        created = x.Created
+                    })));
+
+                using var rejected = messageBus.Listen<Notifications.Messages.ShareRejectedNotification>()
+                    .Where(x => x.PoolId == pool.Id && x.Miner == address)
+                    .Subscribe(x => channel.Writer.TryWrite(Json(new
+                    {
+                        type = "rejected",
+                        worker = x.Worker ?? "",
+                        difficulty = x.Difficulty,
+                        reason = x.Reason,
+                        created = x.Created
+                    })));
+
+                var response = httpContext.Response;
+                response.Headers.ContentType = "text/event-stream";
+                response.Headers.CacheControl = "no-cache";
+                response.Headers["X-Accel-Buffering"] = "no";   // nginx: don't buffer the stream
+
+                await response.WriteAsync(": connected\n\n", ct);
+                await response.Body.FlushAsync(ct);
+
+                while(!ct.IsCancellationRequested)
+                {
+                    // wait for the next share, sending a keep-alive comment every 15s
+                    using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    waitCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                    try
+                    {
+                        await channel.Reader.WaitToReadAsync(waitCts.Token);
+                    }
+
+                    catch(OperationCanceledException) when(!ct.IsCancellationRequested)
+                    {
+                        await response.WriteAsync(": ping\n\n", ct);
+                        await response.Body.FlushAsync(ct);
+                        continue;
+                    }
+
+                    while(channel.Reader.TryRead(out var item))
+                        await response.WriteAsync($"data: {item}\n\n", ct);
+
+                    await response.Body.FlushAsync(ct);
+                }
+            }
+
+            catch(OperationCanceledException)
+            {
+                // client went away
+            }
+
+            finally
+            {
+                Interlocked.Decrement(ref activeShareStreams);
+            }
         });
 
         poolsGroup.MapGet("/{poolId}/miners/{address}/blocks", async (

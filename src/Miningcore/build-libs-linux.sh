@@ -52,3 +52,12 @@ export HAVE_FEATURE="$HAVE_AES $HAVE_SSE2 $HAVE_SSE3 $HAVE_SSSE3 $HAVE_PCLMUL $H
 ((cd /tmp && rm -rf RandomARQ && git clone https://github.com/arqma/RandomARQ && cd RandomARQ && git checkout 3bcb6bafe63d70f8e6f78a0d431e71be2b638083 && mkdir build && cd build && cmake -DARCH=native -DCMAKE_C_FLAGS=-Wa,--noexecstack -DCMAKE_CXX_FLAGS=-Wa,--noexecstack .. && make randomx) && (cd ../Native/librandomarq && cp /tmp/RandomARQ/build/librandomx.a . && make clean && make) && mv ../Native/librandomarq/librandomarq.so "$OutDir")
 ((cd /tmp && rm -rf Panthera && git clone https://github.com/scala-network/Panthera && cd Panthera && git checkout cc7425f468d935ba328fba5bbb05f8227f4f22d7 && mkdir build && cd build && cmake -DARCH=native -DCMAKE_C_FLAGS=-Wa,--noexecstack -DCMAKE_CXX_FLAGS=-Wa,--noexecstack .. && make randomx) && (cd ../Native/libpanthera && cp /tmp/Panthera/build/librandomx.a . && make clean && make) && mv ../Native/libpanthera/libpanthera.so "$OutDir")
 ((cd /tmp && rm -rf RandomXSCash && git clone https://github.com/scashnetwork/RandomX RandomXSCash && cd RandomXSCash && git checkout 0b3e0ded68b95491516fe974e3db784ca2742ca7 && mkdir build && cd build && cmake -DARCH=native -DCMAKE_C_FLAGS=-Wa,--noexecstack -DCMAKE_CXX_FLAGS=-Wa,--noexecstack .. && make randomx) && (cd ../Native/librandomxscash && cp /tmp/RandomXSCash/build/librandomx.a . && make clean && make) && mv ../Native/librandomxscash/librandomxscash.so "$OutDir")
+
+# Quantus (QTC) Poseidon2 hash: a Rust crate. Needs cargo (https://rustup.rs);
+# skipped with a warning when cargo is not installed, so non-Quantus pools still build.
+CARGO=$(command -v cargo || echo "$HOME/.cargo/bin/cargo")
+if [ -x "$CARGO" ]; then
+  (cd ../Native/libquantus && "$CARGO" build --release) && cp ../Native/libquantus/target/release/libquantus.so "$OutDir"
+else
+  echo "WARNING: cargo not found, skipping libquantus.so (only needed for Quantus pools). Install Rust from https://rustup.rs"
+fi

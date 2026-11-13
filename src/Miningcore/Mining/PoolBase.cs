@@ -408,6 +408,26 @@ Pool Fee:               {(poolConfig.RewardRecipients?.Any() == true ? poolConfi
     public abstract double HashrateFromShares(double shares, double interval);
     public virtual double ShareMultiplier => 1;
 
+    /// <summary>
+    /// Publishes a rejected share on the message bus (consumed by the live share stream API).
+    /// </summary>
+    protected void PublishRejectedShare(StratumConnection connection, WorkerContextBase context, string reason)
+    {
+        try
+        {
+            if(context == null || string.IsNullOrEmpty(context.Miner))
+                return;
+
+            messageBus.SendMessage(new Notifications.Messages.ShareRejectedNotification(
+                poolConfig.Id, context.Miner, context.Worker, context.Difficulty, reason, clock.Now));
+        }
+
+        catch
+        {
+            // never let stream publishing interfere with share processing
+        }
+    }
+
     public virtual async Task RunAsync(CancellationToken ct)
     {
         Contract.RequiresNonNull(poolConfig);

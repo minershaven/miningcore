@@ -113,6 +113,13 @@ public class PearlBlockTemplate
 
     [JsonProperty("default_witness_commitment")]
     public string DefaultWitnessCommitment { get; set; }
+
+    /// <summary>
+    /// Any other getblocktemplate fields (e.g. "requiredcertversion"), kept so
+    /// the template round-trips unchanged to the Python bridge.
+    /// </summary>
+    [JsonExtensionData]
+    public IDictionary<string, Newtonsoft.Json.Linq.JToken> ExtraFields { get; set; }
 }
 
 // ---------------------------------------------------------------------------
