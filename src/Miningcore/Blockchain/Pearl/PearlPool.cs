@@ -297,6 +297,7 @@ public class PearlPool : PoolBase
             context.Stats.InvalidShares++;
             logger.Info(() =>
                 $"[{connection.ConnectionId}] Share rejected: {ex.Message} [{context.UserAgent}]");
+            PublishRejectedShare(connection, context, ex.Message);
 
             ConsiderBan(connection, context, poolConfig.Banning);
             throw;
