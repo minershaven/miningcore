@@ -250,6 +250,60 @@ public static class ApiEndpoints
             return gcStats;
         });
 
+        admin.MapGet("/wallets", async (
+            HttpContext http,
+            [FromServices] ClusterConfig clusterConfig,
+            [FromServices] Newtonsoft.Json.JsonSerializerSettings serializerSettings,
+            [FromServices] Messaging.IMessageBus messageBus,
+            [FromServices] IConnectionFactory cf) =>
+        {
+            var wallets = new Admin.WalletAdmin(clusterConfig, serializerSettings, messageBus, cf);
+            return await wallets.GetWalletsAsync(http.RequestAborted);
+        });
+
+        admin.MapPost("/wallets/{coin}/send", async (
+            string coin,
+            HttpContext http,
+            [FromBody] Admin.WalletAdmin.SendRequest request,
+            [FromServices] ClusterConfig clusterConfig,
+            [FromServices] Newtonsoft.Json.JsonSerializerSettings serializerSettings,
+            [FromServices] Messaging.IMessageBus messageBus,
+            [FromServices] IConnectionFactory cf) =>
+        {
+            var clientIp = http.Request.Headers["X-Admin-Client-Ip"].ToString();
+
+            if(string.IsNullOrEmpty(clientIp))
+                clientIp = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+            // Sends always need the admin panel password, on top of the panel session.
+            var expected = clusterConfig.AdminPanel?.Password;
+
+            if(string.IsNullOrEmpty(expected) || request?.Password == null ||
+               !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                   System.Text.Encoding.UTF8.GetBytes(request.Password), System.Text.Encoding.UTF8.GetBytes(expected)))
+            {
+                logger.Warn(() => $"Admin send to {coin} refused from {clientIp}: wrong password");
+                return Results.Json(new { error = "Wrong password" }, statusCode: 403);
+            }
+
+            try
+            {
+                var wallets = new Admin.WalletAdmin(clusterConfig, serializerSettings, messageBus, cf);
+                var result = await wallets.SendAsync(coin, request, clientIp, CancellationToken.None);
+                return Results.Json(result);
+            }
+
+            catch(ArgumentException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 400);
+            }
+
+            catch(Exception ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 502);
+            }
+        });
+
         admin.MapPost("/forcegc", () =>
         {
             GC.Collect(2, GCCollectionMode.Forced);
