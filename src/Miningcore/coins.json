@@ -5998,6 +5998,35 @@
     "explorerTxLink": "http://explorer.swippcoin.com/tx/{0}",
     "explorerAccountLink": "http://explorer.swippcoin.com/address/{0}"
   },
+    "tarcoin": {
+    "name": "TarCoin",
+    "canonicalName": "TarCoin",
+    "symbol": "TAR",
+    "family": "bitcoin",
+    "website": "https://tarcoin.org/",
+    "market": "",
+    "twitter": "https://twitter.com/wojakcoin2017",
+    "telegram": "",
+    "discord": "https://discord.com/invite/QXm4CxDzJC",
+    "github": "https://github.com/WojakCoinProj/wojakcore",
+    "coinbaseHasher": {
+      "hash": "sha256d"
+    },
+    "headerHasher": {
+      "hash": "sha256d"
+    },
+    "blockHasher": {
+      "hash": "reverse",
+      "args": [
+        {
+          "hash": "sha256d"
+        }
+      ]
+    },
+    "explorerBlockLink": "https://explorer.tarcoin.org/blocks/$hash$",
+    "explorerTxLink": "https://explorer.tarcoin.org/tx/{0}",
+    "explorerAccountLink": "https://explorer.tarcoin.org/address/{0}"
+  },
   "terracoin": {
     "name": "Terracoin",
     "canonicalName": "Terracoin",
