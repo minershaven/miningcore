@@ -931,6 +931,17 @@ public partial class ClusterLoggingConfig
     public string ApiLogFile { get; set; }
     public bool PerPoolLogFile { get; set; }
     public string LogBaseDirectory { get; set; }
+
+    /// <summary>
+    /// Roll a log file over once it reaches this many megabytes (default 50, 0 = no cap)
+    /// </summary>
+    public int? LogMaxSizeMB { get; set; }
+
+    /// <summary>
+    /// Number of rolled-over copies kept per log file (default 5)
+    /// </summary>
+    public int? LogMaxArchiveFiles { get; set; }
+
     public bool GPDRCompliant { get; set; }
 
     /// <summary>

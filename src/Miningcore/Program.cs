@@ -718,6 +718,9 @@ public class Program : BackgroundService
                 {
                     FileName = GetLogPath(config, config.ApiLogFile),
                     FileNameKind = FilePathKind.Unknown,
+                    ArchiveAboveSize = GetLogMaxBytes(config),
+                    MaxArchiveFiles = GetLogMaxArchiveFiles(config),
+                    ArchiveNumbering = ArchiveNumberingMode.Rolling,
                     Layout = layout
                 };
 
@@ -788,6 +791,9 @@ public class Program : BackgroundService
                 {
                     FileName = GetLogPath(config, config.LogFile),
                     FileNameKind = FilePathKind.Unknown,
+                    ArchiveAboveSize = GetLogMaxBytes(config),
+                    MaxArchiveFiles = GetLogMaxArchiveFiles(config),
+                    ArchiveNumbering = ArchiveNumberingMode.Rolling,
                     Layout = layout
                 };
 
@@ -811,6 +817,9 @@ public class Program : BackgroundService
                     {
                         FileName = GetLogPath(config, poolConfig.Id + ".log"),
                         FileNameKind = FilePathKind.Unknown,
+                        ArchiveAboveSize = GetLogMaxBytes(config),
+                        MaxArchiveFiles = GetLogMaxArchiveFiles(config),
+                        ArchiveNumbering = ArchiveNumberingMode.Rolling,
                         Layout = layout
                     };
 
@@ -842,6 +851,14 @@ public class Program : BackgroundService
 
         return Path.Combine(config.LogBaseDirectory, name);
     }
+
+    // Log files roll over once they reach logMaxSizeMB (default 50 MB); logMaxArchiveFiles (default 5)
+    // older copies are kept as <name>.1.log … <name>.5.log. Set logMaxSizeMB to 0 to disable the cap.
+    private static long GetLogMaxBytes(ClusterLoggingConfig config) =>
+        (config.LogMaxSizeMB ?? 50) > 0 ? (config.LogMaxSizeMB ?? 50) * 1024L * 1024L : -1;
+
+    private static int GetLogMaxArchiveFiles(ClusterLoggingConfig config) =>
+        Math.Max(1, config.LogMaxArchiveFiles ?? 5);
 
     /// <summary>
     /// Wraps all FileTarget instances with AsyncTargetWrapper to prevent synchronous
