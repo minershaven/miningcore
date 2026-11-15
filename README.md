@@ -1,8 +1,4 @@
-[![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
-
-<img src="logo.png" width="150">
-
-# Miningcore — Miners Haven edition
+<img src="https://github.com/lurchinms/miningcoreV5/blob/main/logo.png" width="150">
 
 High-performance mining pool server for Linux, written in C# / .NET 9. This is the Miningcore build that runs
 [theminershaven.org](https://theminershaven.org) (LTC, DOGE, FIRO, ZANO, NEOX, QTC and PRL).
@@ -237,4 +233,9 @@ consider supporting them:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+A public production pool requires a web-frontend for your users to check their hashrate, earnings etc. Miningcore does not include such frontend but there are several community projects that can be used as starting point.
+
+Once again, do not run a production pool on Windows! This is not a supported configuration.
+
+## Donations
+
