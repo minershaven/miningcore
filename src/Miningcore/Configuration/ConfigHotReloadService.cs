@@ -180,7 +180,27 @@ public class ConfigHotReloadService : BackgroundService
             }
         }
 
-        clusterConfig.Pools = newConfig.Pools;
+        // Pools that kept running are still using their old PoolConfig objects (with the coin template
+        // resolved at startup); keep those, and give every other entry its coin template, so the API,
+        // payouts and stats never see a pool whose Template is null.
+        var restarted = new HashSet<string>(toAdd);
+
+        clusterConfig.Pools = newConfig.Pools.Select(p =>
+        {
+            if(p.Enabled && !restarted.Contains(p.Id))
+            {
+                var running = clusterConfig.Pools.FirstOrDefault(o => o.Id == p.Id);
+
+                if(running?.Template != null)
+                    return running;
+            }
+
+            if(p.Template == null && p.Coin != null && coinTemplates.TryGetValue(p.Coin, out var template))
+                p.Template = template;
+
+            return p;
+        }).ToArray();
+
         clusterConfig.PaymentProcessing = newConfig.PaymentProcessing;
         clusterConfig.Api = newConfig.Api;
         clusterConfig.Banning = newConfig.Banning;
