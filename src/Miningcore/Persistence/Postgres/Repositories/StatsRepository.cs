@@ -318,21 +318,14 @@ public class StatsRepository : IStatsRepository
         DateTime from, int page, int pageSize, CancellationToken ct)
     {
         const string query =
-            @"WITH tmp AS
-            (
-            	SELECT
-            		ms.miner,
-            		ms.hashrate,
-            		ms.sharespersecond,
-            		ROW_NUMBER() OVER(PARTITION BY ms.miner ORDER BY ms.hashrate DESC) AS rk
-            	FROM (SELECT miner, SUM(hashrate) AS hashrate, SUM(sharespersecond) AS sharespersecond
-                   FROM minerstats
-                   WHERE poolid = @poolid AND created >= @from GROUP BY miner, created) ms
-            )
-            SELECT t.miner, t.hashrate, t.sharespersecond
-            FROM tmp t
-            WHERE t.rk = 1
-            ORDER by t.hashrate DESC
+            // Average of each miner's samples in the window (the minutes it was actually mining),
+            // instead of its single highest sample, which overstated miners with lucky share streaks.
+            @"SELECT ms.miner, AVG(ms.hashrate) AS hashrate, AVG(ms.sharespersecond) AS sharespersecond
+            FROM (SELECT miner, SUM(hashrate) AS hashrate, SUM(sharespersecond) AS sharespersecond
+                  FROM minerstats
+                  WHERE poolid = @poolid AND created >= @from GROUP BY miner, created) ms
+            GROUP BY ms.miner
+            ORDER by hashrate DESC
             OFFSET @offset FETCH NEXT @pageSize ROWS ONLY";
 
         return (await con.QueryAsync<Entities.MinerWorkerPerformanceStats>(new CommandDefinition(query,

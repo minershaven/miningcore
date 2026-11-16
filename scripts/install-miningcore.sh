@@ -129,8 +129,8 @@ mkdir -p "$BUILD"
 cp -a "$STAGE/." "$BUILD/"
 rm -rf "$STAGE"
 [[ -x "$BUILD/Miningcore" ]] || die "Install failed: $BUILD/Miningcore was not found"
-for lib in libmultihash libcryptonote libzanonote libprogpowz libkawpow libfiropow libquantus; do
-  [[ -f "$BUILD/$lib.so" ]] || warn "$lib.so is missing; pools that need it will fail (LTC/DOGE: libmultihash, Zano: libcryptonote/libzanonote/libprogpowz, Neoxa: libkawpow, Firo: libfiropow, Quantus: libquantus)"
+for lib in libmultihash libcryptonote libzanonote libprogpowz libkawpow libfiropow libquantus librandomx; do
+  [[ -f "$BUILD/$lib.so" ]] || warn "$lib.so is missing; pools that need it will fail (LTC/DOGE: libmultihash, Zano: libcryptonote/libzanonote/libprogpowz, Neoxa: libkawpow, Firo: libfiropow, Quantus: libquantus, Monero: libcryptonote/librandomx)"
 done
 
 # ----------------------------------------------------------- database

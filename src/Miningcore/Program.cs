@@ -265,6 +265,9 @@ public class Program : BackgroundService
                 });
             }
 
+            // Give services 15 seconds to stop instead of the default 30; pools don't need longer.
+            hostBuilder.ConfigureServices(services => services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(15)));
+
             host = hostBuilder.UseConsoleLifetime().Build();
 
             await PreFlightChecks(host.Services);
@@ -292,6 +295,13 @@ public class Program : BackgroundService
                 await Task.WhenAny(host.RunAsync(), adminPanelTask);
             else
                 await host.RunAsync();
+
+            // The host has stopped and every service has had its StopAsync (shares are flushed by then).
+            // Exit now: lingering foreground threads (ZMQ/NetMQ pollers, the admin panel host) otherwise keep
+            // the process alive until systemd kills it 90 seconds after "stop".
+            logger.Info(() => "Shutdown complete");
+            NLog.LogManager.Shutdown();
+            Environment.Exit(0);
         }
 
         catch(PoolStartupException ex)
